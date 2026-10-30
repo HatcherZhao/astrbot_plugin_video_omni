@@ -22,7 +22,7 @@ from astrbot.api.star import Context, Star
 from .core.omni import DEFAULT_PROMPT, OmniError, VideoOmni, extract_bv
 
 PLUGIN_NAME = "astrbot_plugin_video_omni"
-PLUGIN_VERSION = "0.1.1"
+PLUGIN_VERSION = "0.1.2"
 
 NOTICES = [
     "收到，我先看一遍。",
@@ -36,6 +36,7 @@ class Main(Star):
         super().__init__(context)
         self.config = config if config is not None else {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._sem: asyncio.Semaphore | None = None
 
     # ---------------- 小工具 ----------------
 
@@ -51,6 +52,16 @@ class Main(Star):
 
     def _omni(self) -> VideoOmni:
         return VideoOmni(self._cfg(), log=lambda m: self.logger.debug(f"[video_omni] {m}"))
+
+    def _semaphore(self) -> asyncio.Semaphore:
+        """全局并发闸门：几个群同时发链接也不会一起压榨 CPU 和钱包。"""
+        if self._sem is None:
+            try:
+                n = int(self.config.get("max_concurrent", 2))
+            except (TypeError, ValueError):
+                n = 2
+            self._sem = asyncio.Semaphore(max(1, n))
+        return self._sem
 
     @staticmethod
     def _split(text: str, size: int = 1200) -> list[str]:
@@ -113,7 +124,11 @@ class Main(Star):
     async def _work(self, key: str, bv: str, question: str) -> None:
         t0 = time.time()
         try:
-            res = await self._omni().process(bv, question or None)
+            sem = self._semaphore()
+            if sem.locked():
+                await self._send(key, "前面还有视频在看，这条排队等着，轮到我就开工。")
+            async with sem:
+                res = await self._omni().process(bv, question or None)
             await self._send(key, self._format(res))
         except OmniError as exc:
             await self._send(key, f"这条没看成：{exc}")

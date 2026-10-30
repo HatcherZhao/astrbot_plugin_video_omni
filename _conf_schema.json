@@ -83,6 +83,12 @@
     "type": "int",
     "default": 12
   },
+  "max_concurrent": {
+    "description": "同时处理几个视频",
+    "hint": "全局并发上限。默认 2：两个群同时发链接也能各自跑，第三个开始排队。调大会抢 CPU、账单也叠加。",
+    "type": "int",
+    "default": 2
+  },
   "work_dir": {
     "description": "临时文件目录",
     "hint": "留空 = /tmp/astrbot_video_omni 。下载和压缩的文件放这儿。",

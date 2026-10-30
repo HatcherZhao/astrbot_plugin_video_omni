@@ -223,51 +223,72 @@ class VideoOmni:
         return 480 if duration <= 900 else 360
 
     # ---------- 3. 上传 ----------
-    def _upload_sync(self, path: str) -> str:
-        import urllib.request
+    async def upload(self, path: str) -> str:
+        """流式上传到 DashScope 的临时 OSS。
+
+        body 用异步生成器边读边发，52MB 的文件只占几 MB 内存。
+        OSS 不认 chunked，所以按文件大小显式算好 Content-Length；
+        顺序也照老规矩：policy 这些字段在前，文件 part 在最后。
+        """
         key = self.g("dashscope_api_key", "")
         if not key:
             raise OmniError("还没填百炼 API Key")
         base = self.g("base_url", "https://dashscope.aliyuncs.com").rstrip("/")
         model = self.g("model", "qwen3.8-omni-flash")
-
-        req = urllib.request.Request(
-            f"{base}/api/v1/uploads?action=getPolicy&model={model}",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-        pol = json.load(urllib.request.urlopen(req, timeout=60))["data"]
-
         fn = os.path.basename(path)
-        obj = f"{pol['upload_dir']}/{fn}"
-        b = uuid.uuid4().hex
-        body = b""
-        for k, v in [("OSSAccessKeyId", pol["oss_access_key_id"]),
-                     ("Signature", pol["signature"]),
-                     ("policy", pol["policy"]),
-                     ("key", obj),
-                     ("x-oss-object-acl", pol["x_oss_object_acl"]),
-                     ("x-oss-forbid-overwrite", str(pol["x_oss_forbid_overwrite"]).lower()),
-                     ("success_action_status", "200")]:
-            body += (f"--{b}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n"
-                     f"{v}\r\n").encode()
-        body += (f"--{b}\r\nContent-Disposition: form-data; name=\"file\"; "
-                 f"filename=\"{fn}\"\r\nContent-Type: video/mp4\r\n\r\n").encode()
-        with open(path, "rb") as f:
-            body += f.read()
-        body += f"\r\n--{b}--\r\n".encode()
+        timeout = aiohttp.ClientTimeout(total=1800)
 
-        req2 = urllib.request.Request(
-            pol["upload_host"], data=body, method="POST",
-            headers={"Content-Type": f"multipart/form-data; boundary={b}",
-                     "Content-Length": str(len(body))})
-        try:
-            urllib.request.urlopen(req2, timeout=1800)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read()[:300].decode("utf-8", "ignore")
-            raise OmniError(f"上传失败：{exc.code} {detail}") from exc
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            async with s.get(
+                f"{base}/api/v1/uploads",
+                params={"action": "getPolicy", "model": model},
+                headers={"Authorization": f"Bearer {key}"},
+            ) as r:
+                d = await r.json(content_type=None)
+                if r.status != 200 or "data" not in d:
+                    raise OmniError(f"拿上传凭证失败：{r.status} {str(d)[:200]}")
+                pol = d["data"]
+
+            obj = f"{pol['upload_dir']}/{fn}"
+            b = uuid.uuid4().hex
+            head = ""
+            for name, val in (
+                ("OSSAccessKeyId", pol["oss_access_key_id"]),
+                ("Signature", pol["signature"]),
+                ("policy", pol["policy"]),
+                ("key", obj),
+                ("x-oss-object-acl", pol["x_oss_object_acl"]),
+                ("x-oss-forbid-overwrite", str(pol["x_oss_forbid_overwrite"]).lower()),
+                ("success_action_status", "200"),
+            ):
+                head += (f'--{b}\r\nContent-Disposition: form-data; name="{name}"'
+                         f'\r\n\r\n{val}\r\n')
+            head += (f'--{b}\r\nContent-Disposition: form-data; name="file"; '
+                     f'filename="{fn}"\r\nContent-Type: video/mp4\r\n\r\n')
+            head_b = head.encode()
+            tail_b = f"\r\n--{b}--\r\n".encode()
+            total = len(head_b) + os.path.getsize(path) + len(tail_b)
+
+            async def body():
+                yield head_b
+                with open(path, "rb") as fh:
+                    while True:
+                        chunk = await asyncio.to_thread(fh.read, 262144)
+                        if not chunk:
+                            break
+                        yield chunk
+                yield tail_b
+
+            headers = {
+                "Content-Type": f"multipart/form-data; boundary={b}",
+                "Content-Length": str(total),
+            }
+            async with s.post(pol["upload_host"], data=body(), headers=headers) as r2:
+                if r2.status not in (200, 204):
+                    detail = (await r2.text())[:300]
+                    raise OmniError(f"上传失败：{r2.status} {detail}")
+
         return f"oss://{obj}"
-
-    async def upload(self, path: str) -> str:
-        return await asyncio.to_thread(self._upload_sync, path)
 
     # ---------- 4. 推理 ----------
     async def ask(self, oss_url: str, question: str) -> dict:
