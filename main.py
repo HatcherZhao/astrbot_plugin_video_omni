@@ -22,7 +22,7 @@ from astrbot.api.star import Context, Star
 from .core.omni import DEFAULT_PROMPT, OmniError, VideoOmni, extract_bv
 
 PLUGIN_NAME = "astrbot_plugin_video_omni"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.1.1"
 
 NOTICES = [
     "收到，我先看一遍。",

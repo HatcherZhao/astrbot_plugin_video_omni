@@ -11,7 +11,7 @@ help: >
   2. 群里发 B站视频链接（或直接发 BV 号）即可，插件会先应一声，看完把摘要发出来；
   3. 想换画质或省钱，调「压缩画质」和「单条视频时长上限」；
   4. 觉得贵可以关掉「结果里附花费与耗时」。
-version: 0.1.0
+version: 0.1.1
 author: 汐栗
 repo: https://github.com/HatcherZhao/astrbot_plugin_video_omni
 astrbot_version: ">=4.10.0"

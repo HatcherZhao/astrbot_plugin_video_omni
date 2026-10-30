@@ -119,6 +119,43 @@ class VideoOmni:
         os.makedirs(d, exist_ok=True)
         return d
 
+    # ---------- 0. 清理 ----------
+    def cleanup(self) -> list[str]:
+        """按存活时长和条数上限清理临时文件。
+
+        每次处理前跑一遍：超过 ``keep_cache_hours`` 小时的删掉，
+        再按修改时间只留最近 ``keep_cache_items`` 个文件。
+        正在用的文件 mtime 都是刚刚，不会被误删。
+        """
+        ttl_h = float(self.g("keep_cache_hours", 6))
+        max_items = int(self.g("keep_cache_items", 12))
+        now = time.time()
+        removed: list[str] = []
+        try:
+            entries = sorted(
+                ((os.path.getmtime(os.path.join(self.work_dir, f)),
+                  os.path.join(self.work_dir, f))
+                 for f in os.listdir(self.work_dir)
+                 if os.path.isfile(os.path.join(self.work_dir, f))),
+                reverse=True,
+            )
+        except FileNotFoundError:
+            return removed
+
+        for idx, (mtime, path) in enumerate(entries):
+            name = os.path.basename(path)
+            if name == "cookies.txt":
+                continue
+            if (now - mtime) > ttl_h * 3600 or idx >= max_items:
+                try:
+                    os.remove(path)
+                    removed.append(name)
+                except OSError:
+                    pass
+        if removed:
+            self.log(f"清理临时文件 {len(removed)} 个")
+        return removed
+
     # ---------- 1. 拿文件 ----------
     def _cache_hit(self, bv: str) -> Optional[str]:
         """若 parser_x 已经下过同一个视频，直接白捡。"""
@@ -272,6 +309,7 @@ class VideoOmni:
         max_minutes = float(self.g("max_minutes", 60))
 
         await step("拿到链接，开始取视频")
+        await asyncio.to_thread(self.cleanup)
         src = await self.fetch(bv)
         info = await asyncio.to_thread(probe, src)
         if info["duration"] > max_minutes * 60:

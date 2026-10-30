@@ -71,6 +71,18 @@
     "type": "text",
     "default": ""
   },
+  "keep_cache_hours": {
+    "description": "临时文件保留时长（小时）",
+    "hint": "下载的原片和压缩件超过这个时间就自动删。默认 6 小时，同一条视频在这个时间内仍是秒回，不用重新下载。",
+    "type": "int",
+    "default": 6
+  },
+  "keep_cache_items": {
+    "description": "最多保留几个临时文件",
+    "hint": "按时间只留最近这么多个（一条视频约占 2 个）。默认 12 个，差不多 6 条视频、几百 MB。磁盘紧张就调小。",
+    "type": "int",
+    "default": 12
+  },
   "work_dir": {
     "description": "临时文件目录",
     "hint": "留空 = /tmp/astrbot_video_omni 。下载和压缩的文件放这儿。",
