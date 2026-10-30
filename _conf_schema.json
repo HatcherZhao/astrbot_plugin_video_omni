@@ -1,0 +1,80 @@
+{
+  "enabled": {
+    "description": "总开关",
+    "hint": "关掉后本插件不再接管任何视频链接。",
+    "type": "bool",
+    "default": true
+  },
+  "dashscope_api_key": {
+    "description": "百炼 API Key",
+    "hint": "阿里云百炼（DashScope）的 sk- 开头密钥。填上才能用，插件不依赖宿主主模型。",
+    "type": "string",
+    "default": "",
+    "obvious_hint": true
+  },
+  "model": {
+    "description": "多模态模型",
+    "hint": "默认 qwen3.8-omni-flash：原生带音频通道，能同时看画面和听解说，便宜。换 plus 效果更好但贵一倍。",
+    "type": "string",
+    "default": "qwen3.8-omni-flash"
+  },
+  "base_url": {
+    "description": "API 地域",
+    "hint": "北京：https://dashscope.aliyuncs.com ；新加坡：https://dashscope-intl.aliyuncs.com 。用哪个填哪个，跟你的 key 对应。",
+    "type": "string",
+    "default": "https://dashscope.aliyuncs.com"
+  },
+  "quality": {
+    "description": "压缩画质",
+    "hint": "auto = 15 分钟以内用 480p，更长的用 360p。480p 能看清图表小字，360p 省一半 token。",
+    "type": "string",
+    "default": "auto"
+  },
+  "max_minutes": {
+    "description": "单条视频时长上限（分钟）",
+    "hint": "超过就不看了，直接告诉你太长。模型本身最多吃 2 小时，这里默认 60 分钟，按钱包设。",
+    "type": "int",
+    "default": 60
+  },
+  "max_tokens": {
+    "description": "回答长度上限",
+    "hint": "token 数。20 分钟以上的视频写详细摘要要 2500 以上，2000 容易被截断。",
+    "type": "int",
+    "default": 3000
+  },
+  "bili_cookie": {
+    "description": "B站 Cookie（可选）",
+    "hint": "不填也能下 480p；填了画质更稳、少被风控。格式：SESSDATA=xxx; bili_jct=yyy; DedeUserID=zzz",
+    "type": "string",
+    "default": ""
+  },
+  "parser_cache_dir": {
+    "description": "复用别的插件已下载的文件（可选）",
+    "hint": "填了就去这个目录找同名视频，省一次下载。装了 B站解析插件的话一般不用管。",
+    "type": "string",
+    "default": ""
+  },
+  "notice": {
+    "description": "收到链接先应一声",
+    "hint": "关掉后收到链接就安安静静后台跑，跑完直接把结果发出来。",
+    "type": "bool",
+    "default": true
+  },
+  "show_usage": {
+    "description": "结果里附花费与耗时",
+    "hint": "在摘要末尾加一行 token 用量、花费和 request_id，方便对账。",
+    "type": "bool",
+    "default": true
+  },
+  "prompt": {
+    "description": "默认提问（留空用内置）",
+    "type": "text",
+    "default": ""
+  },
+  "work_dir": {
+    "description": "临时文件目录",
+    "hint": "留空 = /tmp/astrbot_video_omni 。下载和压缩的文件放这儿。",
+    "type": "string",
+    "default": ""
+  }
+}
