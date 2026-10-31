@@ -1,7 +1,7 @@
 {
   "enabled": {
     "description": "总开关",
-    "hint": "关掉后本插件不再接管任何视频链接。",
+    "hint": "开启后向主模型提供视频理解和关键画面工具，不自动拦截链接。",
     "type": "bool",
     "default": true
   },
@@ -54,26 +54,15 @@
     "type": "string",
     "default": ""
   },
-  "notice": {
-    "description": "收到链接先应一声",
-    "hint": "关掉后收到链接就安安静静后台跑，跑完直接把结果发出来。",
-    "type": "bool",
-    "default": true
-  },
   "show_usage": {
-    "description": "结果里附花费与耗时",
-    "hint": "在摘要末尾加一行 token 用量、花费和 request_id，方便对账。",
+    "description": "工具结果包含用量信息",
+    "hint": "供主模型按需回答用量，不自动向群聊发送费用尾注。",
     "type": "bool",
     "default": true
-  },
-  "prompt": {
-    "description": "默认提问（留空用内置）",
-    "type": "text",
-    "default": ""
   },
   "keep_cache_hours": {
     "description": "临时文件保留时长（小时）",
-    "hint": "下载的原片和压缩件超过这个时间就自动删。默认 6 小时，同一条视频在这个时间内仍是秒回，不用重新下载。",
+    "hint": "原片、压缩件及截图的缓存保留时长；复用缓存可省去重复下载，视频推理仍会调用模型。",
     "type": "int",
     "default": 6
   },

@@ -55,8 +55,15 @@ async def _run(cmd: list[str], timeout: int = 900) -> str:
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.CancelledError:
+        if proc.returncode is None:
+            proc.kill()
+        await proc.communicate()
+        raise
     except asyncio.TimeoutError:
-        proc.kill()
+        if proc.returncode is None:
+            proc.kill()
+        await proc.communicate()
         raise OmniError(f"命令超时：{cmd[0]}")
     if proc.returncode != 0:
         raise OmniError(f"{cmd[0]} 失败：{err.decode('utf-8', 'ignore')[-300:]}")
@@ -357,7 +364,7 @@ class VideoOmni:
         cost = pin / 1e6 * pi + pout / 1e6 * po
         return {
             "bv": bv,
-            "answer": d["choices"][0]["message"]["content"],
+            "answer": answer,
             "duration": info["duration"],
             "height": height,
             "out_mb": round(s["size_mb"], 1),

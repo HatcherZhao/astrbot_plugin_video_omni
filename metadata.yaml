@@ -1,27 +1,12 @@
 name: astrbot_plugin_video_omni
 display_name: 视频全模态理解
-short_desc: 把整段视频直接交给多模态模型，画面和声音一次看完，不抽帧、不卡对话
-desc: >
-  收到 B站链接后，自动下载、压缩、上传，交给 qwen3.8-omni 系列模型整段理解，
-  拿到带时间线的摘要后发回群里。画面与音轨一起读，不依赖抽帧和语音转写，
-  中间没有任何同步等待，解析失败也只说一声，不会把用户的消息吞掉。
-  不依赖宿主主模型，OpenAI / DeepSeek / 本地模型都能用。
-help: >
-  1. 在插件配置里填百炼 API Key（必填），模型默认 qwen3.8-omni-flash；
-  2. 群里发 B站视频链接（或直接发 BV 号）即可，插件会先应一声，看完把摘要发出来；
-  3. 想换画质或省钱，调「压缩画质」和「单条视频时长上限」；
-  4. 觉得贵可以关掉「结果里附花费与耗时」。
-version: 0.1.3
+short_desc: 为主模型提供视频理解和关键画面工具
+desc: 下载并理解整段 B站视频，返回事实与时间线；按需提取原片截图。由主模型继续完成用户的问答、文档及其他任务。
+version: 0.2.0
 author: 汐栗
 repo: https://github.com/HatcherZhao/astrbot_plugin_video_omni
-astrbot_version: ">=4.10.0"
+astrbot_version: ">=4.29.3"
 support_platforms:
   - aiocqhttp
   - telegram
   - discord
-category: 工具
-tags:
-  - 视频理解
-  - 多模态
-  - B站
-  - 摘要
