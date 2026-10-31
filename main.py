@@ -19,10 +19,10 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 
-from .core.omni import DEFAULT_PROMPT, OmniError, VideoOmni, extract_bv
+from .core.omni import OmniError, VideoOmni, extract_bv
 
 PLUGIN_NAME = "astrbot_plugin_video_omni"
-PLUGIN_VERSION = "0.1.2"
+PLUGIN_VERSION = "0.1.3"
 
 NOTICES = [
     "收到，我先看一遍。",
@@ -30,12 +30,28 @@ NOTICES = [
     "在看了，看完就跟你讲。",
 ]
 
+# 收到链接后等本人把话说完再开工，两个判据配合：
+# 静默 COLLECT_IDLE 秒就当他讲完了，一直絮絮叨叨最多等到 COLLECT_WINDOW。
+COLLECT_IDLE = 8.0
+COLLECT_WINDOW = 30.0
+
+# 有明确要求时：先概括，再按用户要的形式给结果，不套默认模板。
+USER_PROMPT_TEMPLATE = (
+    "这是一条视频，用户对这次总结有明确要求。请按这个顺序输出：\n"
+    "1. 先用两三句话说清视频主要讲了什么，结论先行，不要按时间复述；\n"
+    "2. 然后严格按用户的要求输出：\n"
+    "{req}\n\n"
+    "不要写成播放流水账，不要罗列画面细节，除非那是关键信息。"
+    "以用户的要求为准，不要套固定模板。不确定的地方直说不确定。"
+)
+
 
 class Main(Star):
     def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
         self.config = config if config is not None else {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._pending: dict[str, dict] = {}
         self._sem: asyncio.Semaphore | None = None
 
     # ---------------- 小工具 ----------------
@@ -82,9 +98,9 @@ class Main(Star):
         for chunk in self._split(text):
             await self.context.send_message(umo, MessageChain().message(chunk))
 
-    def _question(self, raw: str) -> str:
-        """用户除了链接还说了别的话，就把它当成本次关注的额外问题。"""
-        extra = raw or ""
+    @staticmethod
+    def _strip_urls(text: str) -> str:
+        extra = text or ""
         for token in ("https://", "http://"):
             while token in extra:
                 i = extra.index(token)
@@ -92,36 +108,83 @@ class Main(Star):
                 while j < len(extra) and not extra[j].isspace():
                     j += 1
                 extra = extra[:i] + extra[j:]
-        extra = extra.strip(" \n\t，,。.！!？?")
-        if len(extra) < 3:
+        return extra.strip(" \n\t，,。.！!？?")
+
+    def _compose(self, texts: list[str]) -> str:
+        """把链接后面用户说的话收成一条明确要求；一句没说就用默认总结。"""
+        req = "\n".join(t for t in texts if t).strip()
+        if len(req) < 2:
             return ""
-        return f"{DEFAULT_PROMPT}\n\n另外，用户特别想知道：{extra}"
+        return USER_PROMPT_TEMPLATE.format(req=req)
 
     # ---------------- 钩子 ----------------
+
+    @staticmethod
+    def _slot(event: AstrMessageEvent) -> tuple[str, str]:
+        """会话 + 发言者各占一个坑，群里别人说话不会串进你的任务里。"""
+        return (event.unified_msg_origin, str(event.get_sender_id()))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
         if not self._on():
             return
         raw = getattr(event, "message_str", "") or ""
+        slot = self._slot(event)
+        umo = slot[0]
         bv = extract_bv(raw)
+
+        # 只有发链接的那个人在收集期补的话才并进任务；别人发言原样交给主模型。
+        pending = self._pending.get(slot)
+        if pending is not None:
+            if bv:
+                await self._send(umo, "一次先看一条，等这条出来再发另一条。")
+            else:
+                extra = self._strip_urls(raw)
+                if extra:
+                    pending["texts"].append(extra)
+                    pending["last"] = time.monotonic()
+            event.stop_event()
+            return
+
         if not bv:
             return
 
-        key = event.unified_msg_origin
-        running = self._tasks.get(key)
+        running = self._tasks.get(slot)
         if running and not running.done():
-            await self._send(key, "上一条还在看着呢，等它出来再排这条。")
+            await self._send(umo, "上一条还在看着呢，等它出来再排这条。")
             event.stop_event()
             return
 
         event.stop_event()
         if self.config.get("notice", True):
-            await self._send(key, random.choice(NOTICES))
-        self._tasks[key] = asyncio.create_task(
-            self._work(key, bv, self._question(raw)))
+            await self._send(umo, random.choice(NOTICES))
+        now = time.monotonic()
+        self._pending[slot] = {
+            "bv": bv,
+            "texts": [self._strip_urls(raw)],
+            "start": now,
+            "last": now,
+        }
+        asyncio.create_task(self._collect(slot))
 
-    async def _work(self, key: str, bv: str, question: str) -> None:
+    async def _collect(self, slot: tuple[str, str]) -> None:
+        """说完就开工：静默 COLLECT_IDLE 秒算说完，最长等到 COLLECT_WINDOW。"""
+        while True:
+            await asyncio.sleep(0.3)
+            p = self._pending.get(slot)
+            if not p:
+                return
+            now = time.monotonic()
+            if now - p["last"] >= COLLECT_IDLE or now - p["start"] >= COLLECT_WINDOW:
+                break
+        p = self._pending.pop(slot, None)
+        if not p:
+            return
+        self._tasks[slot] = asyncio.create_task(
+            self._work(slot, p["bv"], self._compose(p["texts"])))
+
+    async def _work(self, slot: tuple[str, str], bv: str, question: str) -> None:
+        key = slot[0]
         t0 = time.time()
         try:
             sem = self._semaphore()
@@ -138,7 +201,7 @@ class Main(Star):
             self.logger.warning(f"[video_omni] 处理失败：{exc}")
             await self._send(key, f"看的时候出岔子了：{exc}")
         finally:
-            self._tasks.pop(key, None)
+            self._tasks.pop(slot, None)
             self.logger.info(f"[video_omni] {bv} 处理结束，耗时 {time.time()-t0:.0f}s")
 
     def _format(self, res: dict) -> str:
@@ -157,4 +220,5 @@ class Main(Star):
         for task in list(self._tasks.values()):
             task.cancel()
         self._tasks.clear()
+        self._pending.clear()
         self.logger.info("[video_omni] 插件已停止。")
