@@ -189,7 +189,8 @@ class VideoToolTests(unittest.IsolatedAsyncioTestCase):
         self.ctx.get_registered_star.return_value = SimpleNamespace(activated=True, star_cls=office)
         with patch.object(self.bot, "_omni", return_value=engine), patch.object(main, "probe", return_value={"duration":100}), patch.object(main, "_run", new_callable=AsyncMock):
             result = json.loads(await self.bot.frames(self.event, "BV1kERuBYEyy", [30]))
-        office._owner.assert_called_once_with(self.event)
+        office._owner.assert_called_with(self.event)
+        self.assertEqual(office.store.add_file.call_args.args[1]["source_kind"], "video_frame")
         self.assertEqual(office._capture_one.call_args.args[0], "scoped-owner")
         self.assertEqual(result["frames"][0]["office_input"]["file_id"], "image123")
         self.ctx.send_message.assert_not_called()

@@ -208,6 +208,8 @@ class Main(Star):
             if office and office._eligible(event):
                 try:
                     record = await office._capture_one(office._owner(event), File(name=path.name, file=str(path)))
+                    record.update(source_kind="video_frame", source_video_id=bv, source_seconds=second)
+                    office.store.add_file(office._owner(event), record)
                     item["office_input"] = {k: record[k] for k in ("file_id", "input_name", "filename")}
                 except Exception:
                     logger.exception("[video_omni] 截图登记到 Office 失败")
