@@ -2,7 +2,7 @@ name: astrbot_plugin_video_omni
 display_name: 视频全模态理解
 short_desc: 为主模型提供视频理解和关键画面工具
 desc: 下载并理解整段 B站视频，返回事实与时间线；按需提取原片截图。由主模型继续完成用户的问答、文档及其他任务。
-version: 0.2.0
+version: 0.2.1
 author: 汐栗
 repo: https://github.com/HatcherZhao/astrbot_plugin_video_omni
 astrbot_version: ">=4.29.3"

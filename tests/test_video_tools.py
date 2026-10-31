@@ -35,6 +35,73 @@ class VideoToolTests(unittest.IsolatedAsyncioTestCase):
         self.res = {"duration": 100, "answer": "00:30 配置画面"}
         self.bot._analyse = AsyncMock(return_value=self.res)
 
+    def prepare_parser_event(self):
+        """模拟 Parser X 已发送媒体、尚未进入主模型的真实事件状态。"""
+        self.event.is_stopped.return_value = False
+        self.event.is_at_or_wake_command = True
+        self.event._has_send_oper = True
+        self.event.call_llm = False
+        self.event.get_result.return_value = None
+        self.event.set_extra("activated_handlers", [
+            SimpleNamespace(handler_module_path="data.plugins.astrbot_plugin_parser_x.main")])
+        self.ctx.get_config.return_value = {"provider_settings": {"enable": True, "wake_prefix": ""}}
+        self.conversation = SimpleNamespace(cid="original-cid", history="[]")
+        self.ctx.conversation_manager.get_curr_conversation_id = AsyncMock(return_value="original-cid")
+        self.ctx.conversation_manager.get_conversation = AsyncMock(return_value=self.conversation)
+        from astrbot.core.provider.entities import ProviderRequest
+        self.event.request_llm.side_effect = lambda **kw: ProviderRequest(**kw)
+
+    async def test_native_pipeline_resumes_after_parser_once(self):
+        """真实 ProcessStage 必须在媒体发送后调用模型且只调用一次。"""
+        from astrbot.core.pipeline.process_stage.stage import ProcessStage
+        from astrbot.core.db.po import Conversation
+        self.prepare_parser_event()
+        # ProviderRequest 的 conversation 是实际数据库对象，而非模拟对象。
+        self.conversation = Conversation(cid="original-cid", user_id="test-user", platform_id="qq", history="[]")
+        self.ctx.conversation_manager.get_conversation.return_value = self.conversation
+        stage = ProcessStage()
+        stage.ctx = SimpleNamespace(astrbot_config={"provider_settings": {"enable": True}})
+        captured = []
+        async def plugin_stage(event):
+            async for value in self.bot.resume_after_parser(event):
+                yield value
+        async def agent_stage(event):
+            captured.append(event.get_extra("provider_request"))
+            yield None
+        stage.star_request_sub_stage = SimpleNamespace(process=plugin_stage)
+        stage.agent_sub_stage = SimpleNamespace(process=agent_stage)
+        with patch("astrbot.core.pipeline.process_stage.stage.FILTERS", []):
+            async for _ in stage.process(self.event):
+                pass
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0].prompt, self.event.message_str)
+        self.assertIs(captured[0].conversation, self.conversation)
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+
+    async def test_resume_respects_wake_and_disable(self):
+        """未唤醒、主动禁用及已停止的消息不能被强制继续。"""
+        for name, value in [("is_at_or_wake_command", False), ("call_llm", True), ("_has_send_oper", False)]:
+            self.prepare_parser_event()
+            setattr(self.event, name, value)
+            self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+        self.prepare_parser_event()
+        self.event.is_stopped.return_value = True
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+        self.prepare_parser_event()
+        self.ctx.get_config.return_value = {"provider_settings": {"enable": False}}
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+        self.ctx.get_config.return_value = {"provider_settings": {"enable": True, "wake_prefix": "ask "}}
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+
+    async def test_resume_ignores_unrelated_plugin_and_existing_request(self):
+        """不接管其他插件回复，也不重复已有模型请求。"""
+        self.prepare_parser_event()
+        self.event.set_extra("activated_handlers", [SimpleNamespace(handler_module_path="another.plugin")])
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+        self.prepare_parser_event()
+        self.event.set_extra("provider_request", object())
+        self.assertEqual([x async for x in self.bot.resume_after_parser(self.event)], [])
+
     async def test_original_intent_untouched(self):
         """文档、对比、转发等要求原样留给主模型。"""
         for prompt in ["视频转文档", "比较这个和昨天的方案", "把链接发给小王", "看完后起草邮件"]:

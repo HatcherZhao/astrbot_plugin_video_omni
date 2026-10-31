@@ -41,6 +41,37 @@ class Main(Star):
         """复用既有下载、压缩及推理能力。"""
         return VideoOmni(dict(self.config), log=lambda m: logger.debug(f"[video_omni] {m}"))
 
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-10000)
+    async def resume_after_parser(self, event: AstrMessageEvent):
+        """媒体解析已发送消息时，用原会话继续正常主模型任务。"""
+        if (not self._on() or event.is_stopped() or not event.is_at_or_wake_command
+                or event.call_llm or not event._has_send_oper
+                or event.get_extra("provider_request") is not None
+                or event.get_extra("_video_omni_resumed")):
+            return
+        if not extract_bv(event.message_str or ""):
+            return
+        handlers = event.get_extra("activated_handlers") or []
+        if not any("astrbot_plugin_parser_x." in str(h.handler_module_path)
+                   for h in handlers):
+            return
+        config = self.context.get_config(umo=event.unified_msg_origin)
+        settings = config.get("provider_settings", {})
+        if not settings.get("enable", True):
+            return
+        # 与原生 AgentRequestSubStage 一致，尊重额外的模型唤醒前缀。
+        prefix = settings.get("wake_prefix", "")
+        for wake in config.get("wake_prefix", []):
+            if prefix.startswith(wake):
+                prefix = prefix[len(wake):]
+        if prefix and not (event.message_str or "").startswith(prefix):
+            return
+        from astrbot.core.astr_main_agent import _get_session_conv
+        conversation = await _get_session_conv(event, self.context)
+        event.set_extra("_video_omni_resumed", True)
+        logger.info("[video_omni] 解析器媒体投递完成，将原始请求交回主模型")
+        yield event.request_llm(prompt=event.message_str, conversation=conversation)
+
     @filter.on_llm_request()
     async def route(self, event: AstrMessageEvent, req):
         """仅补充工具职责，不修改原始消息、不拦截事件、不强制总结。"""
